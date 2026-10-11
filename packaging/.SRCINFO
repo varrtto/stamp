@@ -1,0 +1,15 @@
+pkgbase = stamp-usb
+	pkgdesc = Quickshell application that writes disk images to USB sticks
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://github.com/varrtto/stamp
+	arch = any
+	license = MIT
+	depends = quickshell
+	depends = polkit
+	depends = file
+	optdepends = udisks2: power off the stick if eject cannot
+	source = stamp-usb-0.1.0.tar.gz::https://github.com/varrtto/stamp/archive/refs/tags/v0.1.0.tar.gz
+	sha256sums = 5b1112122c6ce389305fef14013c3a43bdbbe25d5e17e60192d2b96edf857786
+
+pkgname = stamp-usb
