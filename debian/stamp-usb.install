@@ -1,0 +1,6 @@
+shell.qml usr/share/stamp-usb
+StepIcon.qml usr/share/stamp-usb
+flash.sh usr/share/stamp-usb
+icons/*.svg usr/share/stamp-usb/icons
+stamp-usb usr/bin
+stamp-usb.desktop usr/share/applications

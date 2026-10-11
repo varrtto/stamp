@@ -1,7 +1,6 @@
 import QtCore
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Dialogs
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
@@ -11,9 +10,9 @@ FloatingWindow {
 
   title: "Stamp"
   visible: true
-  color: palette.bg
-  implicitWidth: 560
-  implicitHeight: 680
+  color: theme.bg
+  implicitWidth: 960
+  implicitHeight: 480
   // A tall minimum makes Hyprland scale the whole workspace down when this
   // window is tiled with others on a short screen.
   minimumSize: Qt.size(160, 120)
@@ -21,7 +20,7 @@ FloatingWindow {
   onClosed: Qt.quit()
 
   QtObject {
-    id: palette
+    id: theme
     property color bg: "#05182e"
     property color bgDeep: "#020c17"
     property color bgRaised: "#0a2540"
@@ -43,12 +42,15 @@ FloatingWindow {
   property string devicesKey: ""
   property bool hasScanned: false
   property string cancelPath: ""
+  property string rememberedPath: ""
+  property real rememberedSize: 0
   property real copiedBytes: 0
   property real elapsedSec: 0
   property string speedText: ""
   property string writePhase: ""
   property string flashError: ""
   property bool ejectAfter: true
+  property bool pickingDrive: false
 
   readonly property string scriptPath: Quickshell.shellDir + "/flash.sh"
   readonly property var selected: {
@@ -57,9 +59,27 @@ FloatingWindow {
     }
     return null
   }
-  readonly property bool imageTooBig: selected !== null && imageBytes > 0 && imageBytes > selected.size
-  readonly property bool canFlash: imagePath.length > 0 && selected !== null && !imageTooBig && phase !== "checking" && phase !== "flashing"
+  readonly property bool imageTooBig: selected !== null && imageBytes > 0 && selected.size > 0 && imageBytes > selected.size
+  readonly property bool canFlash: imagePath.length > 0 && selected !== null && selected.size > 0 && !imageTooBig && phase !== "checking" && phase !== "flashing"
   readonly property real progress: imageBytes > 0 ? Math.max(0, Math.min(1, copiedBytes / imageBytes)) : 0
+  readonly property bool showProgress: phase === "flashing" || (phase === "done" && selected !== null)
+  readonly property bool canCancel: phase === "flashing" && writePhase !== "sync" && writePhase !== "eject" && writePhase !== "done"
+  readonly property string progressDetail: {
+    if (phase === "done" && selected !== null) return formatBytes(imageBytes)
+    if (!(phase === "flashing" && writePhase === "write")) return ""
+    const eta = copiedBytes > 0 && elapsedSec > 0
+        ? "  ·  " + formatEta((imageBytes - copiedBytes) / (copiedBytes / elapsedSec)) + " left"
+        : ""
+    return Math.round(progress * 100) + "%   " + formatBytes(copiedBytes)
+        + " of " + formatBytes(imageBytes)
+        + (speedText ? "   ·   " + speedText : "")
+        + eta
+  }
+  readonly property string footerText: {
+    if (status.length > 0) return status
+    if (imageTooBig) return "The image is larger than the selected stick."
+    return progressDetail
+  }
 
   function urlToPath(value) {
     let s = value ? value.toString() : ""
@@ -90,15 +110,15 @@ FloatingWindow {
       const match = text.match(new RegExp("^" + key + "\\s*=\\s*\"(#[0-9A-Fa-f]{6})\"", "m"))
       return match ? match[1] : fallback
     }
-    palette.bg = pick("background", palette.bg)
-    palette.bgDeep = pick("darker_background", palette.bgDeep)
-    palette.bgRaised = pick("lighter_background", palette.bgRaised)
-    palette.fg = pick("foreground", palette.fg)
-    palette.muted = pick("cyan", palette.muted)
-    palette.accent = pick("accent", palette.accent)
-    palette.danger = pick("red", palette.danger)
-    palette.line = pick("selection", palette.line)
-    palette.ok = pick("cyan", palette.ok)
+    theme.bg = pick("background", theme.bg)
+    theme.bgDeep = pick("darker_background", theme.bgDeep)
+    theme.bgRaised = pick("lighter_background", theme.bgRaised)
+    theme.fg = pick("foreground", theme.fg)
+    theme.muted = pick("cyan", theme.muted)
+    theme.accent = pick("accent", theme.accent)
+    theme.danger = pick("red", theme.danger)
+    theme.line = pick("selection", theme.line)
+    theme.ok = pick("cyan", theme.ok)
   }
 
   function refreshDevices() {
@@ -123,11 +143,22 @@ FloatingWindow {
       const mounts = collectMounts(disk, [])
       if (mounts.some(isSystemMount)) continue
       const title = [disk.vendor, disk.model].map(clean).filter(Boolean).join(" ") || "USB disk"
+      // Powering the stick off leaves the device node in place with a size of 0.
+      let size = Number(disk.size) || 0
+      if (!(size > 0)) {
+        for (let j = 0; j < devices.length; j++) {
+          if (devices[j].path === disk.path && devices[j].size > 0) {
+            size = devices[j].size
+            break
+          }
+        }
+      }
+      if (!(size > 0) && disk.path === rememberedPath && rememberedSize > 0) size = rememberedSize
       found.push({
         path: disk.path,
         name: disk.name,
-        size: Number(disk.size) || 0,
-        sizeLabel: formatBytes(disk.size),
+        size: size,
+        sizeLabel: formatBytes(size),
         title: title,
         mounts: mounts.join(", ")
       })
@@ -177,17 +208,65 @@ FloatingWindow {
     imageDesc = lines.slice(1).join(" ")
   }
 
-  function openConfirm() {
-    if (!canFlash) return
-    confirmField.text = ""
-    flashError = ""
-    status = ""
-    phase = "confirm"
+  function baseName(path) {
+    const slash = String(path || "").lastIndexOf("/")
+    return slash >= 0 ? path.slice(slash + 1) : path
   }
 
-  function startCheck() {
-    if (!selected || confirmField.text !== selected.name) return
-    if (imagePath.length === 0 || imageTooBig) return
+  function browse() {
+    if (phase === "flashing" || phase === "checking" || pickerProc.running) return
+    pickingDrive = false
+    let start = imagePath
+    if (start.length > 0) {
+      const slash = start.lastIndexOf("/")
+      start = slash > 0 ? start.slice(0, slash) : "/"
+    } else {
+      start = urlToPath(StandardPaths.writableLocation(StandardPaths.HomeLocation))
+    }
+    if (!start || start.length === 0) start = "/"
+    if (!start.endsWith("/")) start += "/"
+    pickerProc.exec([
+      "zenity", "--file-selection",
+      "--title=Choose a disk image",
+      "--filename=" + start,
+      "--file-filter=Disk images | *.iso *.img *.ISO *.IMG",
+      "--file-filter=All files | *",
+      "--width=960",
+      "--height=520"
+    ])
+  }
+
+  function chooseDrive() {
+    if (phase === "flashing" || phase === "checking") return
+    if (devices.length === 0) {
+      status = hasScanned ? "No USB sticks found. Plug one in." : "Looking for USB sticks…"
+      return
+    }
+    if (devices.length === 1) {
+      selectDrive(devices[0].path)
+      return
+    }
+    pickingDrive = true
+  }
+
+  function selectDrive(path) {
+    selectedPath = path
+    pickingDrive = false
+    if (phase === "error" || phase === "done") {
+      phase = "idle"
+      status = ""
+    }
+  }
+
+  function burn() {
+    if (phase === "flashing" || phase === "checking") return
+    pickingDrive = false
+    if (!canFlash) {
+      if (imagePath.length === 0) status = "Choose an image first."
+      else if (selected === null) status = "Choose a USB stick first."
+      else if (imageTooBig) status = "The image is larger than the selected stick."
+      return
+    }
     flashError = ""
     status = "Checking the stick…"
     phase = "checking"
@@ -195,9 +274,9 @@ FloatingWindow {
   }
 
   function startWrite() {
-    if (!selected || confirmField.text !== selected.name) {
+    if (!selected) {
       phase = "error"
-      status = "Confirmation did not match the device."
+      status = "The stick disappeared."
       return
     }
     phase = "flashing"
@@ -260,6 +339,11 @@ FloatingWindow {
     } else if (line.startsWith("ok ")) {
       const parts = line.split(" ")
       imageBytes = Number(parts[1]) || imageBytes
+      const devBytes = Number(parts[2]) || 0
+      if (devBytes > 0 && selected) {
+        rememberedPath = selected.path
+        rememberedSize = devBytes
+      }
     }
   }
 
@@ -267,6 +351,7 @@ FloatingWindow {
     if (code === 0 || writePhase === "done") {
       phase = "done"
       if (!status) status = "Write finished."
+      if (!doneSound.running) doneSound.running = true
       refreshDevices()
       return
     }
@@ -350,426 +435,289 @@ FloatingWindow {
 
   Process { id: cancelProc }
 
-  FileDialog {
-    id: picker
-    title: "Choose a disk image"
-    fileMode: FileDialog.OpenFile
-    nameFilters: ["Disk images (*.iso *.img *.ISO *.IMG)", "All files (*)"]
-    currentFolder: "file://" + StandardPaths.writableLocation(StandardPaths.HomeLocation)
-    onAccepted: win.setImage(selectedFile)
+  Process {
+    id: doneSound
+    command: ["canberra-gtk-play", "-i", "complete"]
+  }
+
+  Process {
+    id: pickerProc
+    stdout: StdioCollector {
+      onStreamFinished: {
+        const path = text.replace(/\s+$/, "")
+        if (path) win.setImage(path)
+      }
+    }
   }
 
   Timer {
     interval: 3000
     repeat: true
-    running: win.phase !== "flashing" && win.phase !== "checking" && win.phase !== "confirm"
+    running: win.phase !== "flashing" && win.phase !== "checking"
     triggeredOnStart: true
     onTriggered: win.refreshDevices()
   }
 
-  Item {
+  ColumnLayout {
     anchors.fill: parent
+    anchors.margins: 18
+    spacing: 12
 
-    ColumnLayout {
-      anchors.fill: parent
-      anchors.margins: 22
-      spacing: 14
+    RowLayout {
+      Layout.fillWidth: true
+      Layout.fillHeight: true
+      spacing: 10
 
-      ColumnLayout {
-        spacing: 4
+      Rectangle {
+        id: imageStep
         Layout.fillWidth: true
+        Layout.fillHeight: true
+        radius: 18
+        color: imageHover.containsMouse && imageHover.enabled ? theme.bgRaised : "transparent"
+        border.color: win.imagePath.length > 0 ? theme.accent : theme.line
+        border.width: 1
 
-        Text {
-          text: "Stamp"
-          color: palette.fg
-          font.family: "Adwaita Sans"
-          font.pixelSize: 22
-          font.weight: Font.DemiBold
-        }
-        Text {
-          Layout.fillWidth: true
-          text: "Write a disk image to a USB stick. The whole stick is erased. Internal disks are not listed."
-          wrapMode: Text.WordWrap
-          maximumLineCount: 3
-          elide: Text.ElideRight
-          color: palette.muted
-          font.family: "Adwaita Sans"
-          font.pixelSize: 13
-        }
-      }
-
-      ColumnLayout {
-        spacing: 8
-        Layout.fillWidth: true
-
-        Text {
-          text: "Image"
-          color: palette.fg
-          font.family: "Adwaita Sans"
-          font.pixelSize: 13
-          font.weight: Font.Medium
-        }
-
-        RowLayout {
-          Layout.fillWidth: true
-          spacing: 8
-
-          Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 40
-            radius: 8
-            color: palette.bgDeep
-            border.color: palette.line
-            border.width: 1
-
-            Text {
-              anchors.fill: parent
-              anchors.leftMargin: 12
-              anchors.rightMargin: 12
-              verticalAlignment: Text.AlignVCenter
-              elide: Text.ElideMiddle
-              text: win.imagePath || "No image selected"
-              color: win.imagePath ? palette.fg : palette.muted
-              font.family: "JetBrainsMono Nerd Font"
-              font.pixelSize: 12
-            }
-          }
-
-          ActionButton {
-            colors: palette
-            text: "Browse"
-            enabled: win.phase !== "flashing" && win.phase !== "checking"
-            onClicked: picker.open()
-          }
+        StepIcon {
+          anchors.horizontalCenter: parent.horizontalCenter
+          anchors.verticalCenter: parent.verticalCenter
+          anchors.verticalCenterOffset: -22
+          width: Math.min(imageStep.width, imageStep.height - 64) * 0.86
+          height: width
+          source: Qt.resolvedUrl("icons/disc.svg")
+          color: win.imagePath.length > 0 ? theme.accent : theme.muted
         }
 
         Text {
-          Layout.fillWidth: true
-          visible: win.imagePath.length > 0
-          text: (win.imageBytes > 0 ? win.formatBytes(win.imageBytes) + "  ·  " : "") + (win.imageDesc || "Reading image…")
-          color: palette.muted
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.bottom: parent.bottom
+          anchors.margins: 16
+          horizontalAlignment: Text.AlignHCenter
+          text: win.imagePath.length > 0
+              ? win.baseName(win.imagePath) + (win.imageBytes > 0 ? "\n" + win.formatBytes(win.imageBytes) : "")
+              : "Choose an image"
+          color: win.imagePath.length > 0 ? theme.fg : theme.muted
           wrapMode: Text.WordWrap
           maximumLineCount: 2
           elide: Text.ElideRight
           font.family: "Adwaita Sans"
-          font.pixelSize: 12
-        }
-      }
-
-      ColumnLayout {
-        spacing: 8
-        Layout.fillWidth: true
-        Layout.fillHeight: true
-
-        RowLayout {
-          Layout.fillWidth: true
-          Text {
-            text: "USB stick"
-            color: palette.fg
-            font.family: "Adwaita Sans"
-            font.pixelSize: 13
-            font.weight: Font.Medium
-            Layout.fillWidth: true
-          }
-          ActionButton {
-            colors: palette
-            text: "Refresh"
-            enabled: win.phase !== "flashing" && win.phase !== "checking"
-            onClicked: win.refreshDevices()
-          }
+          font.pixelSize: 14
+          font.weight: Font.Medium
         }
 
-        Flickable {
-          Layout.fillWidth: true
-          Layout.fillHeight: true
-          Layout.minimumHeight: 48
-          contentHeight: deviceCol.implicitHeight
-          clip: true
-          boundsBehavior: Flickable.StopAtBounds
-
-          Column {
-            id: deviceCol
-            width: parent.width
-            spacing: 8
-
-            Text {
-              width: parent.width
-              visible: win.devices.length === 0
-              text: win.hasScanned ? "No USB sticks found. Plug one in, then refresh." : "Looking for USB sticks…"
-              color: palette.muted
-              wrapMode: Text.WordWrap
-              font.family: "Adwaita Sans"
-              font.pixelSize: 13
-            }
-
-            Repeater {
-              model: win.devices
-              delegate: Rectangle {
-                required property var modelData
-                width: deviceCol.width
-                height: mountText.visible ? 72 : 56
-                radius: 8
-                color: win.selectedPath === modelData.path ? palette.bgRaised : palette.bgDeep
-                border.color: win.selectedPath === modelData.path ? palette.accent : palette.line
-                border.width: win.selectedPath === modelData.path ? 2 : 1
-
-                Column {
-                  anchors.fill: parent
-                  anchors.margins: 10
-                  spacing: 2
-
-                  Text {
-                    width: parent.width
-                    text: modelData.title + "   " + modelData.sizeLabel
-                    color: palette.fg
-                    elide: Text.ElideRight
-                    font.family: "Adwaita Sans"
-                    font.pixelSize: 14
-                    font.weight: Font.Medium
-                  }
-                  Text {
-                    width: parent.width
-                    text: modelData.path
-                    color: palette.accent
-                    font.family: "JetBrainsMono Nerd Font"
-                    font.pixelSize: 12
-                  }
-                  Text {
-                    id: mountText
-                    width: parent.width
-                    visible: modelData.mounts.length > 0
-                    text: "Mounted at " + modelData.mounts + ". It will be unmounted."
-                    color: palette.muted
-                    elide: Text.ElideRight
-                    font.family: "Adwaita Sans"
-                    font.pixelSize: 12
-                  }
-                }
-
-                MouseArea {
-                  anchors.fill: parent
-                  enabled: win.phase !== "flashing" && win.phase !== "checking"
-                  cursorShape: Qt.PointingHandCursor
-                  onClicked: {
-                    win.selectedPath = modelData.path
-                    if (win.phase === "error" || win.phase === "done" || win.phase === "confirm") {
-                      win.phase = "idle"
-                      win.status = ""
-                    }
-                  }
-                }
-              }
-            }
-          }
+        MouseArea {
+          id: imageHover
+          anchors.fill: parent
+          hoverEnabled: true
+          enabled: win.phase !== "flashing" && win.phase !== "checking"
+          cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+          onClicked: win.browse()
         }
-      }
-
-      RowLayout {
-        Layout.fillWidth: true
-        spacing: 8
-
-        Rectangle {
-          width: 18
-          height: 18
-          radius: 4
-          color: win.ejectAfter ? palette.accent : "transparent"
-          border.color: win.ejectAfter ? palette.accent : palette.muted
-          border.width: 1
-
-          Text {
-            anchors.centerIn: parent
-            visible: win.ejectAfter
-            text: "✓"
-            color: palette.bgDeep
-            font.pixelSize: 12
-            font.weight: Font.Bold
-          }
-
-          MouseArea {
-            anchors.fill: parent
-            enabled: win.phase !== "flashing"
-            cursorShape: Qt.PointingHandCursor
-            onClicked: win.ejectAfter = !win.ejectAfter
-          }
-        }
-
-        Text {
-          Layout.fillWidth: true
-          text: "Power off the stick when the write finishes"
-          color: palette.fg
-          font.family: "Adwaita Sans"
-          font.pixelSize: 13
-          MouseArea {
-            anchors.fill: parent
-            enabled: win.phase !== "flashing"
-            cursorShape: Qt.PointingHandCursor
-            onClicked: win.ejectAfter = !win.ejectAfter
-          }
-        }
-      }
-
-      Text {
-        Layout.fillWidth: true
-        visible: win.imageTooBig
-        wrapMode: Text.WordWrap
-        text: "The image is larger than the selected stick."
-        color: palette.danger
-        font.family: "Adwaita Sans"
-        font.pixelSize: 13
       }
 
       Rectangle {
-        visible: win.phase === "flashing" || win.phase === "done"
+        id: driveStep
         Layout.fillWidth: true
-        Layout.preferredHeight: 10
-        radius: 5
-        color: palette.bgDeep
+        Layout.fillHeight: true
+        radius: 18
+        color: driveHover.containsMouse && driveHover.enabled && !win.pickingDrive ? theme.bgRaised : "transparent"
+        border.color: win.selected !== null ? theme.accent : theme.line
+        border.width: 1
 
-        Rectangle {
-          width: parent.width * (win.phase === "done" ? 1 : win.progress)
-          height: parent.height
-          radius: 5
-          color: win.phase === "error" ? palette.danger : palette.accent
+        StepIcon {
+          visible: !win.pickingDrive
+          anchors.horizontalCenter: parent.horizontalCenter
+          anchors.verticalCenter: parent.verticalCenter
+          anchors.verticalCenterOffset: -22
+          width: Math.min(driveStep.width, driveStep.height - 64) * 0.86
+          height: width
+          source: Qt.resolvedUrl("icons/usb.svg")
+          color: win.selected !== null ? theme.accent : theme.muted
+        }
+
+        Text {
+          visible: !win.pickingDrive
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.bottom: parent.bottom
+          anchors.margins: 16
+          horizontalAlignment: Text.AlignHCenter
+          text: win.selected
+              ? win.selected.title + "\n" + win.selected.sizeLabel
+              : (win.devices.length === 0 ? "Plug in a stick" : "Choose a stick")
+          color: win.selected !== null ? theme.fg : theme.muted
+          wrapMode: Text.WordWrap
+          maximumLineCount: 2
+          elide: Text.ElideRight
+          font.family: "Adwaita Sans"
+          font.pixelSize: 14
+          font.weight: Font.Medium
+        }
+
+        MouseArea {
+          id: driveHover
+          anchors.fill: parent
+          hoverEnabled: true
+          visible: !win.pickingDrive
+          enabled: win.phase !== "flashing" && win.phase !== "checking"
+          cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+          onClicked: win.chooseDrive()
+        }
+
+        ListView {
+          anchors.fill: parent
+          anchors.margins: 12
+          visible: win.pickingDrive
+          clip: true
+          spacing: 8
+          boundsBehavior: Flickable.StopAtBounds
+          model: win.devices
+
+          delegate: Rectangle {
+            required property var modelData
+            width: ListView.view.width
+            height: modelData.mounts.length > 0 ? 72 : 56
+            radius: 10
+            color: theme.bgDeep
+            border.color: theme.line
+
+            Column {
+              anchors.fill: parent
+              anchors.margins: 10
+              spacing: 2
+
+              Text {
+                width: parent.width
+                text: modelData.title + "   " + modelData.sizeLabel
+                color: theme.fg
+                elide: Text.ElideRight
+                font.family: "Adwaita Sans"
+                font.pixelSize: 14
+                font.weight: Font.Medium
+              }
+              Text {
+                width: parent.width
+                text: modelData.name
+                color: theme.accent
+                font.family: "JetBrainsMono Nerd Font"
+                font.pixelSize: 12
+              }
+              Text {
+                width: parent.width
+                visible: modelData.mounts.length > 0
+                text: "Mounted. It will be unmounted."
+                color: theme.muted
+                elide: Text.ElideRight
+                font.family: "Adwaita Sans"
+                font.pixelSize: 12
+              }
+            }
+
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: win.selectDrive(modelData.path)
+            }
+          }
         }
       }
 
-      Text {
+      Rectangle {
+        id: flameStep
         Layout.fillWidth: true
-        visible: (win.phase === "flashing" && win.writePhase === "write") || win.phase === "done"
-        text: {
-          if (win.phase === "done") return win.formatBytes(win.imageBytes)
-          const eta = win.copiedBytes > 0 && win.elapsedSec > 0
-              ? "  ·  " + win.formatEta((win.imageBytes - win.copiedBytes) / (win.copiedBytes / win.elapsedSec)) + " left"
-              : ""
-          return Math.round(win.progress * 100) + "%   " + win.formatBytes(win.copiedBytes)
-              + " of " + win.formatBytes(win.imageBytes)
-              + (win.speedText ? "   ·   " + win.speedText : "")
-              + eta
-        }
-        color: palette.muted
-        font.family: "JetBrainsMono Nerd Font"
-        font.pixelSize: 12
-      }
+        Layout.fillHeight: true
+        radius: 18
+        color: flameHover.containsMouse && flameHover.enabled ? theme.bgRaised : "transparent"
+        border.color: win.canFlash || win.phase === "flashing" ? theme.danger : theme.line
+        border.width: 1
 
-      Text {
-        Layout.fillWidth: true
-        visible: win.status.length > 0
-        wrapMode: Text.WordWrap
-        text: win.status
-        color: win.phase === "error" ? palette.danger : palette.fg
-        font.family: "Adwaita Sans"
-        font.pixelSize: 13
-      }
-
-      RowLayout {
-        Layout.fillWidth: true
-        spacing: 8
-
-        ActionButton {
-          colors: palette
-          text: "Cancel"
-          visible: win.phase === "flashing" && win.writePhase !== "sync" && win.writePhase !== "eject" && win.writePhase !== "done"
-          danger: true
-          onClicked: win.cancelWrite()
+        StepIcon {
+          anchors.horizontalCenter: parent.horizontalCenter
+          anchors.verticalCenter: parent.verticalCenter
+          anchors.verticalCenterOffset: -22
+          width: Math.min(flameStep.width, flameStep.height - 64) * 0.86
+          height: width
+          source: Qt.resolvedUrl("icons/flame.svg")
+          color: win.canFlash || win.phase === "flashing" || win.phase === "done" ? theme.danger : theme.muted
+          opacity: win.canFlash || win.phase === "flashing" || win.phase === "checking" || win.phase === "done" ? 1 : 0.45
         }
 
-        ActionButton {
-          colors: palette
-          Layout.fillWidth: true
-          text: win.phase === "checking" ? "Checking…" : (win.selected ? "Write to " + win.selected.name : "Write")
-          filled: true
-          enabled: win.canFlash
-          onClicked: win.openConfirm()
+        Text {
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.bottom: parent.bottom
+          anchors.margins: 16
+          horizontalAlignment: Text.AlignHCenter
+          text: {
+            if (win.phase === "checking") return "Checking…"
+            if (win.phase === "flashing" && win.writePhase === "write") return Math.round(win.progress * 100) + "%"
+            if (win.phase === "flashing") return "Writing…"
+            if (win.phase === "done") return "Done"
+            return "Write"
+          }
+          color: win.canFlash || win.phase === "flashing" || win.phase === "done" ? theme.fg : theme.muted
+          elide: Text.ElideRight
+          font.family: "Adwaita Sans"
+          font.pixelSize: 14
+          font.weight: Font.Medium
+        }
+
+        MouseArea {
+          id: flameHover
+          anchors.fill: parent
+          hoverEnabled: true
+          enabled: win.phase !== "flashing" && win.phase !== "checking"
+          cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+          onClicked: win.burn()
         }
       }
     }
 
     Rectangle {
-      anchors.fill: parent
-      visible: win.phase === "confirm"
-      color: Qt.rgba(0, 0, 0, 0.45)
-      onVisibleChanged: if (visible) confirmField.forceActiveFocus()
-
-      MouseArea { anchors.fill: parent }
+      visible: win.showProgress
+      Layout.fillWidth: true
+      Layout.preferredHeight: 8
+      radius: 4
+      color: theme.bgDeep
 
       Rectangle {
-        anchors.centerIn: parent
-        width: Math.min(parent.width - 48, 460)
-        height: confirmCol.implicitHeight + 36
-        radius: 12
-        color: palette.bg
-        border.color: palette.line
+        width: parent.width * (win.phase === "done" ? 1 : win.progress)
+        height: parent.height
+        radius: 4
+        color: theme.accent
+      }
+    }
 
-        ColumnLayout {
-          id: confirmCol
-          anchors.left: parent.left
-          anchors.right: parent.right
-          anchors.top: parent.top
-          anchors.margins: 18
-          spacing: 10
+    RowLayout {
+      Layout.fillWidth: true
+      visible: win.footerText.length > 0 || win.canCancel
+      spacing: 12
 
-          Text {
-            Layout.fillWidth: true
-            text: "Erase " + (win.selected ? win.selected.path : "") + "?"
-            color: palette.fg
-            wrapMode: Text.WordWrap
-            font.family: "Adwaita Sans"
-            font.pixelSize: 18
-            font.weight: Font.DemiBold
-          }
-          Text {
-            Layout.fillWidth: true
-            text: win.selected
-                ? win.selected.title + "  ·  " + win.selected.sizeLabel + "\nEverything on this stick will be deleted."
-                : ""
-            color: palette.muted
-            wrapMode: Text.WordWrap
-            font.family: "Adwaita Sans"
-            font.pixelSize: 13
-          }
-          Text {
-            Layout.fillWidth: true
-            text: "Type " + (win.selected ? win.selected.name : "") + " to confirm."
-            color: palette.fg
-            font.family: "Adwaita Sans"
-            font.pixelSize: 13
-          }
-          TextField {
-            id: confirmField
-            Layout.fillWidth: true
-            placeholderText: win.selected ? win.selected.name : ""
-            color: palette.fg
-            placeholderTextColor: palette.muted
-            font.family: "JetBrainsMono Nerd Font"
-            font.pixelSize: 14
-            selectByMouse: true
-            background: Rectangle {
-              radius: 8
-              color: palette.bgDeep
-              border.color: confirmField.activeFocus ? palette.accent : palette.line
-            }
-            Keys.onReturnPressed: if (win.selected && text === win.selected.name) win.startCheck()
-          }
-          RowLayout {
-            Layout.alignment: Qt.AlignRight
-            spacing: 8
-            ActionButton {
-              colors: palette
-              text: "Back"
-              onClicked: win.phase = "idle"
-            }
-            ActionButton {
-              colors: palette
-              text: "Erase and write"
-              filled: true
-              danger: true
-              enabled: win.selected !== null && confirmField.text === win.selected.name
-              onClicked: win.startCheck()
-            }
-          }
+      Text {
+        Layout.fillWidth: true
+        text: win.footerText
+        color: win.phase === "error" || win.imageTooBig ? theme.danger : theme.fg
+        wrapMode: Text.WordWrap
+        maximumLineCount: 2
+        elide: Text.ElideRight
+        font.family: "Adwaita Sans"
+        font.pixelSize: 13
+      }
+
+      Text {
+        visible: win.canCancel
+        text: "Cancel"
+        color: theme.danger
+        font.family: "Adwaita Sans"
+        font.pixelSize: 13
+        font.weight: Font.Medium
+
+        MouseArea {
+          anchors.fill: parent
+          cursorShape: Qt.PointingHandCursor
+          onClicked: win.cancelWrite()
         }
       }
     }
   }
-
 }

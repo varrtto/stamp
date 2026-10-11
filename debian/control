@@ -1,0 +1,17 @@
+Source: stamp-usb
+Section: utils
+Priority: optional
+Maintainer: Alfredo Gore <alfredo.gore@gmail.com>
+Rules-Requires-Root: no
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.2
+Homepage: https://github.com/varrtto/stamp
+
+Package: stamp-usb
+Architecture: all
+Depends: quickshell, polkit, file, zenity, ${misc:Depends}
+Recommends: udisks2, sound-theme-freedesktop, gnome-session-canberra | libcanberra-gtk3
+Description: Write disk images to USB sticks
+ Stamp is a Quickshell window for writing an ISO or IMG file to a USB stick.
+ It lists only USB disks, refuses the disk that holds the running system, and
+ asks for permission through polkit before it writes.

@@ -6,11 +6,12 @@ Rectangle {
 
   required property QtObject colors
   property string text: ""
+  property string iconSource: ""
   property bool filled: false
   property bool danger: false
   signal clicked()
 
-  Layout.preferredWidth: label.implicitWidth + 28
+  Layout.preferredWidth: content.implicitWidth + 28
   Layout.preferredHeight: 36
   radius: 8
   opacity: enabled ? 1 : 0.4
@@ -21,14 +22,27 @@ Rectangle {
   border.color: danger ? colors.danger : (filled ? "transparent" : colors.line)
   border.width: filled ? 0 : 1
 
-  Text {
-    id: label
+  Row {
+    id: content
     anchors.centerIn: parent
-    text: button.text
-    color: button.filled ? button.colors.bgDeep : (button.danger ? button.colors.danger : button.colors.fg)
-    font.family: "Adwaita Sans"
-    font.pixelSize: 13
-    font.weight: Font.Medium
+    spacing: button.iconSource === "" ? 0 : 8
+
+    StepIcon {
+      width: button.iconSource === "" ? 0 : 16
+      height: 16
+      visible: button.iconSource !== ""
+      source: button.iconSource
+      color: label.color
+    }
+
+    Text {
+      id: label
+      text: button.text
+      color: button.filled ? button.colors.bgDeep : (button.danger ? button.colors.danger : button.colors.fg)
+      font.family: "Adwaita Sans"
+      font.pixelSize: 13
+      font.weight: Font.Medium
+    }
   }
 
   MouseArea {
