@@ -14,7 +14,9 @@ FloatingWindow {
   color: palette.bg
   implicitWidth: 560
   implicitHeight: 680
-  minimumSize: Qt.size(480, 560)
+  // A tall minimum makes Hyprland scale the whole workspace down when this
+  // window is tiled with others on a short screen.
+  minimumSize: Qt.size(160, 120)
 
   onClosed: Qt.quit()
 
@@ -388,6 +390,8 @@ FloatingWindow {
           Layout.fillWidth: true
           text: "Write a disk image to a USB stick. The whole stick is erased. Internal disks are not listed."
           wrapMode: Text.WordWrap
+          maximumLineCount: 3
+          elide: Text.ElideRight
           color: palette.muted
           font.family: "Adwaita Sans"
           font.pixelSize: 13
@@ -445,6 +449,8 @@ FloatingWindow {
           text: (win.imageBytes > 0 ? win.formatBytes(win.imageBytes) + "  ·  " : "") + (win.imageDesc || "Reading image…")
           color: palette.muted
           wrapMode: Text.WordWrap
+          maximumLineCount: 2
+          elide: Text.ElideRight
           font.family: "Adwaita Sans"
           font.pixelSize: 12
         }
@@ -476,7 +482,7 @@ FloatingWindow {
         Flickable {
           Layout.fillWidth: true
           Layout.fillHeight: true
-          Layout.minimumHeight: 140
+          Layout.minimumHeight: 48
           contentHeight: deviceCol.implicitHeight
           clip: true
           boundsBehavior: Flickable.StopAtBounds
