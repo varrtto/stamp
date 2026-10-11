@@ -68,16 +68,20 @@ esac
 disk_name=$(basename -- "$device")
 
 backs_system() {
-  local target src cur pk
+  local target src cur pk seen
   for target in / /boot /efi /home; do
     src=$(/usr/bin/findmnt -nro SOURCE -T "$target" 2>/dev/null || true)
     [[ -z "$src" ]] && continue
     cur=${src%%\[*}
     cur=${cur%% *}
-    while true; do
+    seen=" "
+    while [[ -n "$cur" && "$seen" != *" $cur "* ]]; do
+      seen+="$cur "
       [[ "$(basename -- "$cur")" == "$disk_name" ]] && return 0
-      pk=$(/usr/bin/lsblk -no PKNAME -- "$cur" 2>/dev/null | awk 'NR==1 { print; exit }')
-      [[ -z "$pk" ]] && break
+      # -d skips holders. Without it, lsblk also prints the child and the
+      # first parent name can be the device itself, which loops forever.
+      pk=$(/usr/bin/lsblk -dno PKNAME -- "$cur" 2>/dev/null | awk 'NR==1 { print; exit }')
+      [[ -z "$pk" || "$pk" == "$(basename -- "$cur")" ]] && break
       cur="/dev/$pk"
     done
   done
@@ -114,12 +118,13 @@ fi
 
 printf 'phase unmount\n'
 
+# Unmount by device node. Mount paths can contain spaces, and findmnt's raw
+# output escapes those spaces, which makes umount look for the wrong path.
 while IFS= read -r node; do
   [[ -z "$node" ]] && continue
-  while IFS= read -r mp; do
-    [[ -z "$mp" ]] && continue
-    /usr/bin/umount -- "$mp" || die "could not unmount $mp"
-  done < <(/usr/bin/findmnt -nrvo TARGET -S "$node" || true)
+  if /usr/bin/findmnt -n -S "$node" >/dev/null 2>&1; then
+    /usr/bin/umount -- "$node" || die "could not unmount $node"
+  fi
 done < <(/usr/bin/lsblk -nrpo PATH -- "$device")
 
 while read -r src _; do

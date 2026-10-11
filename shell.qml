@@ -39,7 +39,7 @@ FloatingWindow {
   property string selectedPath: ""
   property var devices: []
   property string devicesKey: ""
-  property bool scanning: false
+  property bool hasScanned: false
   property string cancelPath: ""
   property real copiedBytes: 0
   property real elapsedSec: 0
@@ -101,12 +101,11 @@ FloatingWindow {
 
   function refreshDevices() {
     if (phase === "flashing" || phase === "checking" || scanProc.running) return
-    scanning = true
     scanProc.running = true
   }
 
   function applyDevices(text) {
-    scanning = false
+    hasScanned = true
     let parsed
     try {
       parsed = JSON.parse(text)
@@ -296,7 +295,7 @@ FloatingWindow {
       }
     }
     onExited: code => {
-      win.scanning = false
+      win.hasScanned = true
       if (code !== 0) win.status = "Could not list disks."
     }
   }
@@ -468,7 +467,7 @@ FloatingWindow {
           }
           ActionButton {
             colors: palette
-            text: win.scanning ? "Scanning" : "Refresh"
+            text: "Refresh"
             enabled: win.phase !== "flashing" && win.phase !== "checking"
             onClicked: win.refreshDevices()
           }
@@ -490,7 +489,7 @@ FloatingWindow {
             Text {
               width: parent.width
               visible: win.devices.length === 0
-              text: win.scanning ? "Looking for USB sticks…" : "No USB sticks found. Plug one in, then refresh."
+              text: win.hasScanned ? "No USB sticks found. Plug one in, then refresh." : "Looking for USB sticks…"
               color: palette.muted
               wrapMode: Text.WordWrap
               font.family: "Adwaita Sans"
@@ -658,7 +657,6 @@ FloatingWindow {
 
       RowLayout {
         Layout.fillWidth: true
-        Layout.alignment: Qt.AlignRight
         spacing: 8
 
         ActionButton {
@@ -671,7 +669,8 @@ FloatingWindow {
 
         ActionButton {
           colors: palette
-          text: win.phase === "checking" ? "Checking…" : (win.selected ? "Flash to " + win.selected.name : "Flash")
+          Layout.fillWidth: true
+          text: win.phase === "checking" ? "Checking…" : (win.selected ? "Write to " + win.selected.name : "Write")
           filled: true
           enabled: win.canFlash
           onClicked: win.openConfirm()
