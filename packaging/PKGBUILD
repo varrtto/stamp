@@ -7,7 +7,7 @@ arch=('any')
 url="https://github.com/varrtto/stamp"
 license=('MIT')
 depends=('quickshell' 'polkit' 'file')
-optdepends=('udisks2: power off the stick if eject cannot')
+optdepends=('udisks2: power off the stick when eject fails')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/varrtto/stamp/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('5b1112122c6ce389305fef14013c3a43bdbbe25d5e17e60192d2b96edf857786')
 
