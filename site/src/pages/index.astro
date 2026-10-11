@@ -152,6 +152,20 @@ makepkg -si</code></pre>
       <code>makepkg</code> downloads the v0.1.0 source archive from GitHub and
       checks its hash before installing.
     </p>
+
+    <h3>Install the Debian package</h3>
+    <p>
+      Each update of this page includes
+      <a href={`${import.meta.env.BASE_URL}stamp-usb.deb`}>stamp-usb.deb</a>,
+      built for Debian and Ubuntu. It installs the <code>stamp-usb</code> command
+      and a Stamp entry in the application menu.
+    </p>
+    <pre><code>sudo apt install ./stamp-usb.deb</code></pre>
+    <p class="note">
+      The package needs <code>quickshell</code>, which Debian testing and
+      unstable provide, along with Ubuntu 26.10. On an older Ubuntu release,
+      install Quickshell from the DankLinux PPA first.
+    </p>
   </section>
 
   <footer class="footer">
