@@ -1,0 +1,41 @@
+---
+import "@fontsource/newsreader/500.css";
+import "@fontsource/source-sans-3/400.css";
+import "@fontsource/source-sans-3/600.css";
+import "@fontsource/jetbrains-mono/400.css";
+import "../styles/global.css";
+
+interface Props {
+  title: string;
+  description: string;
+}
+
+const { title, description } = Astro.props;
+const base = import.meta.env.BASE_URL.endsWith("/")
+  ? import.meta.env.BASE_URL
+  : `${import.meta.env.BASE_URL}/`;
+const canonical = new URL(base, Astro.site);
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <meta name="theme-color" content="#05182e" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonical} />
+    <link rel="icon" href={`${base}favicon.svg`} />
+  </head>
+  <body>
+    <a class="skip" href="#content">Skip to content</a>
+    <main class="sheet" id="content">
+      <slot />
+    </main>
+  </body>
+</html>

@@ -1,0 +1,268 @@
+:root {
+  color-scheme: dark;
+  --bg: #05182e;
+  --desk: #020c17;
+  --raised: #0a2540;
+  --fg: #f6dcac;
+  --muted: #9ec9c2;
+  --accent: #faa968;
+  --ink: #f85525;
+  --line: #134e5a;
+  --sans: "Source Sans 3", "Adwaita Sans", sans-serif;
+  --serif: "Newsreader", "Iowan Old Style", Georgia, serif;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse 70% 40% at 50% 0%, rgba(19, 78, 90, 0.35), transparent 70%),
+    var(--desk);
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 1.125rem;
+  line-height: 1.6;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--desk);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.skip {
+  position: absolute;
+  left: 1rem;
+  top: 0;
+  transform: translateY(-120%);
+  background: var(--accent);
+  color: var(--desk);
+  padding: 0.5rem 0.8rem;
+  z-index: 2;
+}
+
+.skip:focus {
+  transform: none;
+}
+
+.sheet {
+  width: min(46rem, calc(100% - 1.5rem));
+  margin: clamp(0.75rem, 3vw, 2.75rem) auto;
+  padding: clamp(1.4rem, 4vw, 3.2rem);
+  background: var(--bg);
+  border: 1px solid var(--line);
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 1.5rem 1.75rem;
+  align-items: center;
+}
+
+.seal {
+  width: 7.5rem;
+  height: 7.5rem;
+  color: var(--ink);
+  transform: rotate(-7deg);
+}
+
+.seal svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.kicker {
+  margin: 0 0 0.35rem;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: clamp(3.4rem, 8vw, 5.2rem);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  line-height: 0.9;
+}
+
+.lede {
+  margin: 0.9rem 0 0;
+  max-width: 36rem;
+  color: var(--muted);
+  font-size: 1.2rem;
+}
+
+nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.15rem;
+  margin-top: 1.35rem;
+}
+
+nav a,
+.footer a,
+a {
+  color: var(--accent);
+  text-underline-offset: 0.18em;
+}
+
+nav a {
+  font-family: var(--mono);
+  font-size: 0.92rem;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+
+nav a:hover {
+  border-bottom-color: var(--accent);
+}
+
+section {
+  margin-top: 3.25rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--line);
+}
+
+h2 {
+  margin: 0 0 0.85rem;
+  font-family: var(--serif);
+  font-size: clamp(2rem, 4vw, 2.55rem);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+}
+
+h3 {
+  margin: 1.6rem 0 0.4rem;
+  font-family: var(--serif);
+  font-size: 1.45rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+p {
+  margin: 0.75rem 0 0;
+}
+
+.steps {
+  margin: 1.25rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.steps li {
+  display: grid;
+  grid-template-columns: 2.4rem 1fr;
+  gap: 0.7rem;
+  align-items: baseline;
+}
+
+.steps span {
+  font-family: var(--mono);
+  color: var(--ink);
+  font-size: 0.92rem;
+}
+
+.checks {
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.checks li {
+  position: relative;
+  margin: 0.55rem 0 0;
+  padding-left: 1.15rem;
+}
+
+.checks li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.62em;
+  width: 0.45rem;
+  height: 0.45rem;
+  border: 1.5px solid var(--ink);
+  border-radius: 1px;
+  transform: rotate(8deg);
+}
+
+pre {
+  margin: 1rem 0 0;
+  padding: 1rem 1.05rem;
+  overflow-x: auto;
+  background: var(--desk);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.84em;
+}
+
+p code,
+li code {
+  display: inline-block;
+  color: var(--fg);
+  background: var(--raised);
+  padding: 0.08em 0.35em;
+  border-radius: 4px;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+
+.note {
+  margin-top: 0.85rem;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.footer {
+  margin-top: 3.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.98rem;
+}
+
+@media (max-width: 640px) {
+  .hero {
+    grid-template-columns: 1fr;
+  }
+
+  .seal {
+    width: 6.25rem;
+    height: 6.25rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}

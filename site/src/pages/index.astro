@@ -1,0 +1,163 @@
+---
+import Base from "../layouts/Base.astro";
+
+const description =
+  "Stamp writes a disk image to a USB stick. The whole stick is erased. Internal disks are not listed.";
+---
+
+<Base title="Stamp" description={description}>
+  <header class="hero">
+    <div class="seal" aria-hidden="true">
+      <svg viewBox="0 0 200 200">
+        <circle cx="100" cy="100" r="94" fill="none" stroke="currentColor" stroke-width="3" />
+        <circle cx="100" cy="100" r="84" fill="none" stroke="currentColor" stroke-width="1.25" />
+        <text
+          x="100"
+          y="108"
+          text-anchor="middle"
+          fill="currentColor"
+          font-size="32"
+          font-family="Newsreader, serif"
+          font-weight="500">STAMP</text>
+        <text
+          x="100"
+          y="134"
+          text-anchor="middle"
+          fill="currentColor"
+          font-size="13"
+          letter-spacing="3.5"
+          font-family="Source Sans 3, sans-serif">USB</text>
+      </svg>
+    </div>
+    <div>
+      <p class="kicker">Quickshell, for Omarchy</p>
+      <h1>Stamp</h1>
+      <p class="lede">{description}</p>
+      <nav>
+        <a href="#built">How it's built</a>
+        <a href="#download">Download</a>
+        <a href="https://github.com/varrtto/stamp">Source</a>
+      </nav>
+    </div>
+  </header>
+
+  <section id="use">
+    <h2>What you do</h2>
+    <p>
+      Pick a disk image, pick a USB stick, and type that stick’s name. Stamp
+      then asks for authorization and copies the image over the whole device.
+    </p>
+    <ol class="steps">
+      <li>
+        <span>01</span>
+        <span>Choose an <code>.iso</code>, an <code>.img</code>, or any other image file.</span>
+      </li>
+      <li>
+        <span>02</span>
+        <span>Choose a USB stick. Only whole USB disks are offered.</span>
+      </li>
+      <li>
+        <span>03</span>
+        <span>Type the kernel name, such as <code>sdb</code>, to confirm the erase.</span>
+      </li>
+      <li>
+        <span>04</span>
+        <span>Approve the system authorization dialog. The window itself never runs as root.</span>
+      </li>
+      <li>
+        <span>05</span>
+        <span>Leave the stick plugged in through the sync. Unplug it when Stamp says you can.</span>
+      </li>
+    </ol>
+  </section>
+
+  <section id="built">
+    <h2>How it's built</h2>
+    <p>
+      Stamp is a Quickshell window and a shell script, kept apart so the
+      interface can stay unprivileged. The colors on this page are Stamp’s own
+      defaults. On Omarchy, the window reads your current theme and uses those
+      colors instead.
+    </p>
+
+    <h3>The window</h3>
+    <p>
+      <code>shell.qml</code> is a Qt Quick window run by <code>qs</code>. Every
+      few seconds it asks <code>lsblk</code> for block devices and keeps disks
+      whose transport is USB. Read-only disks are dropped, and so is anything
+      mounted at <code>/</code>, <code>/boot</code>, <code>/efi</code>, or
+      <code>/home</code>. The file picker records the image path; <code>stat</code>
+      and <code>file</code> supply the size and a short description.
+    </p>
+    <p>
+      The confirmation field has to match the device name before anything else
+      happens. Stamp then runs <code>flash.sh --check</code>. That pass only
+      reports whether the image fits. The write starts after the check, through
+      <code>pkexec</code>, which is the normal polkit prompt.
+    </p>
+
+    <h3>The writer</h3>
+    <p>
+      <code>flash.sh</code> is the only part that opens the disk. It checks the
+      same facts again, as root, and stops if any of them fail.
+    </p>
+    <ul class="checks">
+      <li>The path is a whole disk, <code>/dev/sdX</code> or <code>/dev/nvmeXnY</code>, not a partition and not a symlink.</li>
+      <li><code>lsblk</code> reports type <code>disk</code>, transport <code>usb</code>, and a writable device.</li>
+      <li>The disk is not the one that holds <code>/</code>, <code>/boot</code>, <code>/efi</code>, or <code>/home</code>.</li>
+      <li>The image is a regular file outside <code>/dev</code>, <code>/sys</code>, and <code>/proc</code>, and it is smaller than the stick.</li>
+    </ul>
+    <p>
+      When the checks pass, the script unmounts filesystems on the stick, turns
+      off swap that points at it, and copies the image with <code>dd</code> in
+      4&nbsp;MiB blocks. <code>dd</code> prints progress on one updating line.
+      The script turns those updates into plain lines the window can show:
+      percent, bytes, speed, and time left.
+    </p>
+    <p>
+      After the copy, it runs <code>sync</code> and flushes the device. If you
+      left “Power off the stick when the write finishes” on, it ejects the
+      stick, and uses <code>udisksctl</code> if eject needs another try. Cancel
+      is a flag file the script reads between steps. Once sync has started, the
+      window stops offering cancel, because the bytes are already on the stick
+      and the flush still has to finish.
+    </p>
+  </section>
+
+  <section id="download">
+    <h2>Download</h2>
+    <p>
+      Stamp needs Quickshell, which Omarchy already includes, and polkit so the
+      write can ask for authorization. Version 0.1.0 is tagged on
+      <a href="https://github.com/varrtto/stamp">GitHub</a>. The license is MIT.
+    </p>
+
+    <h3>Run it from the source</h3>
+    <p>This opens the window from the directory you just cloned.</p>
+    <pre><code>git clone https://github.com/varrtto/stamp.git
+cd stamp
+qs -p .</code></pre>
+
+    <h3>Install the Arch package</h3>
+    <p>
+      The repository includes a <code>PKGBUILD</code>. Building it installs the
+      <code>stamp-usb</code> command and a Stamp entry in the application menu.
+      The package depends on <code>quickshell</code>, <code>polkit</code>, and
+      <code>file</code>. <code>udisks2</code> is optional and covers the power-off fallback.
+    </p>
+    <pre><code>git clone https://github.com/varrtto/stamp.git
+cd stamp/packaging
+makepkg -si</code></pre>
+    <p class="note">
+      <code>makepkg</code> downloads the v0.1.0 source archive from GitHub and
+      checks its hash before installing.
+    </p>
+  </section>
+
+  <footer class="footer">
+    <p>
+      Stamp is by Alfredo Gore.{" "}
+      <a href="https://github.com/varrtto/stamp">github.com/varrtto/stamp</a>
+    </p>
+  </footer>
+</Base>
